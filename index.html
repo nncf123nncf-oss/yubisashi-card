@@ -57,7 +57,7 @@ input[type=text]{width:100%;min-width:0;min-height:52px;padding:10px 12px;border
 .note-fixed strong{color:var(--text)}
 
 /* A4の紙（画面では縮めて表示、印刷ではそのまま） */
-#sheet{width:190mm;height:276mm;background:#fff;color:#111;padding:8mm;display:flex;flex-direction:column;gap:5mm;font-family:"Hiragino Sans","Yu Gothic","Meiryo",sans-serif;font-size:var(--fs,14pt);overflow:hidden}
+#sheet{width:190mm;height:270mm;background:#fff;color:#111;padding:8mm;display:flex;flex-direction:column;gap:5mm;font-family:"Hiragino Sans","Yu Gothic","Meiryo",sans-serif;font-size:var(--fs,14pt);overflow:hidden}
 #sheet .shop{text-align:center;font-weight:700;font-size:1.6em;line-height:1.25;padding:0 0 3mm;border-bottom:.6mm solid #111;overflow-wrap:anywhere}
 #sheet .grid{flex:1;min-height:0;display:grid;gap:4mm;grid-auto-rows:minmax(0,1fr)}
 #sheet .grid.c1{grid-template-columns:1fr}
@@ -133,7 +133,7 @@ input[type=text]{width:100%;min-width:0;min-height:52px;padding:10px 12px;border
   <p class="save-note" id="saveNote">選んだ文と店名は、この端末のブラウザにだけ保存します。外には送りません。<span class="warn" id="saveWarn" hidden>この端末では保存できません（プライベートブラウズなど）。ページを閉じると選んだ文は消えます。</span></p>
 
   <nav class="tabs" role="tablist" aria-label="切り替え">
-    <button type="button" role="tab" id="tab-pick" aria-controls="panel-pick" aria-selected="true">選ぶ<span class="num" id="tabCount">0つ</span></button>
+    <button type="button" role="tab" id="tab-pick" aria-controls="panel-pick" aria-selected="true">選ぶ<span class="num" id="tabCount">0文</span></button>
     <button type="button" role="tab" id="tab-show" aria-controls="panel-show" aria-selected="false">見せる<span class="num">タップで大きく</span></button>
     <button type="button" role="tab" id="tab-print" aria-controls="panel-print" aria-selected="false">印刷カード<span class="num">A4に1枚</span></button>
   </nav>
@@ -336,8 +336,8 @@ input[type=text]{width:100%;min-width:0;min-height:52px;padding:10px 12px;border
   }
   function renderCounts() {
     var n = state.sel.length;
-    $('tabCount').textContent = n + 'つ';
-    $('pickCount').textContent = n ? n + 'つ選んでいます。' : 'お店で使う文を選んでください。';
+    $('tabCount').textContent = n + '文';
+    $('pickCount').textContent = n ? n + '文を選んでいます。' : 'お店で使う文を選んでください。';
     $('goShow').hidden = !n;
   }
 
@@ -356,13 +356,23 @@ input[type=text]{width:100%;min-width:0;min-height:52px;padding:10px 12px;border
     });
   }
   var cur = 0, returnFocus = null;
+  // 全画面のあいだは、後ろのページを操作・読み上げの対象から外す
+  function setInert(on) {
+    ['.wrap', '.mw-footer'].forEach(function (q) {
+      var e = document.querySelector(q); if (!e) return;
+      if (on) { e.setAttribute('inert', ''); e.setAttribute('aria-hidden', 'true'); }
+      else { e.removeAttribute('inert'); e.removeAttribute('aria-hidden'); }
+    });
+  }
   function openShow(i, from) {
     returnFocus = from || null; cur = i;
     $('show').hidden = false; document.documentElement.style.overflow = 'hidden';
+    setInert(true);
     paintShow(); $('fsClose').focus();
   }
   function closeShow() {
     $('show').hidden = true; document.documentElement.style.overflow = '';
+    setInert(false);
     if (returnFocus) try { returnFocus.focus(); } catch (e) {}
   }
   function paintShow() {
@@ -374,8 +384,10 @@ input[type=text]{width:100%;min-width:0;min-height:52px;padding:10px 12px;border
       d.appendChild(L.key === 'ja' ? jaEl('span', 'tx', it) : el('span', 'tx', it[L.key], L.lang));
       fs.appendChild(d);
     });
+    var a = document.activeElement;
     $('fsPrev').disabled = cur <= 0;
     $('fsNext').disabled = cur >= state.sel.length - 1;
+    if (a && a.disabled) $('fsClose').focus(); // 押せなくなったボタンにフォーカスを残さない
     $('fsPos').textContent = (cur + 1) + ' / ' + state.sel.length;
     fitShow();
   }
@@ -399,6 +411,18 @@ input[type=text]{width:100%;min-width:0;min-height:52px;padding:10px 12px;border
 
   // ---- 印刷カード ----
   function renderSheet() {
+    var panel = $('panel-print');
+    // 「印刷カード」以外の画面から印刷したとき（Ctrl+P・共有→プリント）も大きさを測れるよう、
+    // 測っている間だけパネルを画面の外で表示状態にする（レビュー①🔴1）
+    if (panel.hidden) {
+      panel.hidden = false;
+      panel.style.cssText = 'position:absolute;left:-10000px;top:0;width:760px;visibility:hidden';
+      try { renderSheetInner(); } finally { panel.hidden = true; panel.style.cssText = ''; }
+      return;
+    }
+    renderSheetInner();
+  }
+  function renderSheetInner() {
     var sheet = $('sheet'); sheet.textContent = '';
     var n = state.sel.length;
     $('printEmpty').hidden = !!n; $('previewWrap').hidden = !n; $('doPrint').hidden = !n;
@@ -416,6 +440,7 @@ input[type=text]{width:100%;min-width:0;min-height:52px;padding:10px 12px;border
     // 枠からはみ出さない最大の文字の大きさを探す（初期値の0.5〜1.8倍の範囲で二分探索）
     function over(pt) {
       sheet.style.setProperty('--fs', pt + 'pt');
+      if (!sheet.clientHeight) return true; // 測れないときは「あふれる」扱い（大きくしすぎない）
       var cells = sheet.querySelectorAll('.cell');
       for (var i = 0; i < cells.length; i++) if (cells[i].scrollHeight > cells[i].clientHeight + 1 || cells[i].scrollWidth > cells[i].clientWidth + 1) return true;
       return sheet.scrollHeight > sheet.clientHeight + 1;
@@ -480,7 +505,15 @@ input[type=text]{width:100%;min-width:0;min-height:52px;padding:10px 12px;border
     }
   });
   var rt = null;
-  window.addEventListener('resize', function () { clearTimeout(rt); rt = setTimeout(function () { fitShow(); scalePreview(); }, 80); });
+  function onResize() {
+    clearTimeout(rt);
+    rt = setTimeout(function () { fitShow(); scalePreview(); }, 80);
+    // iPhoneは向きを変えた直後の大きさが古いことがあるので、少し待ってもう一度合わせる
+    setTimeout(function () { fitShow(); }, 400);
+  }
+  window.addEventListener('resize', onResize);
+  window.addEventListener('orientationchange', onResize);
+  if (window.visualViewport) window.visualViewport.addEventListener('resize', onResize);
 
   // ---- 消す ----
   function closeModal() { $('modal').hidden = true; $('clearAll').focus(); }
