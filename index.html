@@ -68,14 +68,15 @@ input[type=text]{width:100%;min-width:0;min-height:52px;padding:10px 12px;border
 #sheet .cell .ja,#sheet .cell .o{overflow-wrap:anywhere}
 
 /* 全画面で見せる */
-#show{position:fixed;left:0;top:0;width:100%;height:100vh;height:100dvh;z-index:40;background:#FFFFFF;color:#111;display:flex;flex-direction:column;padding:max(10px,env(safe-area-inset-top)) max(12px,env(safe-area-inset-right)) max(10px,env(safe-area-inset-bottom)) max(12px,env(safe-area-inset-left))}
+#show{position:fixed;inset:0;z-index:40;background:#FFFFFF;color:#111;display:flex;flex-direction:column;padding:max(10px,env(safe-area-inset-top)) max(12px,env(safe-area-inset-right)) max(10px,env(safe-area-inset-bottom)) max(12px,env(safe-area-inset-left))}
 #show .fs{flex:1;min-height:0;display:grid;grid-template-columns:1fr;grid-auto-rows:auto;align-content:space-evenly;gap:.35em;font-size:var(--fs,40px);overflow:hidden}
 #show.land .fs{grid-template-columns:1fr 1fr;align-content:center;column-gap:.8em;row-gap:.5em}
 #show .ln{min-width:0}
 #show .lab{display:block;font-size:max(13px,.32em);font-weight:700;color:#7A3B24;line-height:1.3;letter-spacing:.02em}
 #show .tx{display:block;line-height:1.25;font-weight:700;overflow-wrap:anywhere}
 #show .ln.ja .tx{color:#111}
-#show .tx:lang(ja),#sheet .ja{word-break:auto-phrase}
+/* 日本語・韓国語は決めた切れ目（日本語は<wbr>・韓国語は空白）でだけ折り返す。入らなければ文字を小さくする */
+#show .tx:lang(ja),#show .tx:lang(ko),#sheet .cell .ja,#sheet .cell .o:lang(ko){word-break:keep-all;overflow-wrap:normal}
 /* 中国語・韓国語は、その言語のフォントを先に使う（日本語のフォントと混ざって字の太さがばらつくのを防ぐ） */
 :lang(zh-Hans){font-family:"PingFang SC","Hiragino Sans GB","Microsoft YaHei","Noto Sans SC","Noto Sans CJK SC","Source Han Sans SC",sans-serif}
 :lang(ko){font-family:"Apple SD Gothic Neo","Malgun Gothic","Noto Sans KR","Noto Sans CJK KR","Source Han Sans K",sans-serif}
@@ -98,6 +99,15 @@ input[type=text]{width:100%;min-width:0;min-height:52px;padding:10px 12px;border
 .mw-footer p{margin:4px 0}
 .mw-footer a{color:var(--accent)}
 [hidden]{display:none !important}
+/* パソコン・横長のタブレット: 印刷カードは左に店名と印刷ボタン、右にプレビュー */
+@media (min-width:960px){
+  .wrap{max-width:1000px}
+  #panel-pick,#panel-show,#clearAll{max-width:760px}
+  #panel-print:not([hidden]){display:grid;grid-template-columns:300px minmax(0,1fr);column-gap:28px;align-items:start}
+  #panel-print > *{grid-column:1}
+  #panel-print > .preview-wrap{grid-column:2;grid-row:1 / span 8;margin:0;max-width:600px;width:100%}
+  #panel-print > .empty{grid-column:1 / -1}
+}
 @media print{
   @page{size:A4 portrait;margin:10mm}
   html,body{background:#fff !important;margin:0;padding:0}
@@ -211,8 +221,20 @@ input[type=text]{width:100%;min-width:0;min-height:52px;padding:10px 12px;border
       { id: 'g2', ja: 'テイクアウトできます', en: 'Takeout is available.', zh: '可以外带。', ko: '포장 가능합니다.' }
     ] }
   ];
+  // 日本語を折り返してよい場所（| の位置）。| を外すと上の ja と同じ文になる
+  var JA_BREAKS = {
+    m1: '現金のみです', m2: 'カード・|電子マネー|使えます', m3: 'お会計は|レジで|お願いします', m4: '別々の|お会計が|できます',
+    s1: '本日は|満席です', s2: 'ご予約の方が|優先です', s3: '少々|お待ちください',
+    p1: '写真撮影は|OKです', p2: '写真撮影は|ご遠慮ください',
+    r1: '靴を脱いで|お上がりください', r2: '食べ物の|持ち込みは|ご遠慮ください', r3: '店内では|お静かに|お願いします',
+    g1: 'トイレは|こちらです', g2: 'テイクアウト|できます'
+  };
   var ALL = [];
-  GROUPS.forEach(function (g) { g.items.forEach(function (it) { ALL.push(it); }); });
+  GROUPS.forEach(function (g) { g.items.forEach(function (it) {
+    var b = JA_BREAKS[it.id];
+    it.jaParts = (b && b.split('|').join('') === it.ja) ? b.split('|') : [it.ja];
+    ALL.push(it);
+  }); });
   var BY_ID = {};
   ALL.forEach(function (it) { BY_ID[it.id] = it; });
   var LANGS = [
@@ -255,6 +277,15 @@ input[type=text]{width:100%;min-width:0;min-height:52px;padding:10px 12px;border
     if (cls) e.className = cls;
     if (text != null) e.textContent = text;
     if (lang) e.lang = lang;
+    return e;
+  }
+  // 日本語の文を、折り返してよい場所に<wbr>を挟んで作る（文字は textContent のまま）
+  function jaEl(tag, cls, it) {
+    var e = el(tag, cls, null, 'ja');
+    it.jaParts.forEach(function (p, i) {
+      if (i) e.appendChild(document.createElement('wbr'));
+      e.appendChild(document.createTextNode(p));
+    });
     return e;
   }
   var KEY = 'yubisashi-card-v1';
@@ -340,7 +371,7 @@ input[type=text]{width:100%;min-width:0;min-height:52px;padding:10px 12px;border
     Y.LANGS.forEach(function (L) {
       var d = el('div', 'ln ' + L.key);
       d.appendChild(el('span', 'lab', L.label, L.lang));
-      d.appendChild(el('span', 'tx', it[L.key], L.lang));
+      d.appendChild(L.key === 'ja' ? jaEl('span', 'tx', it) : el('span', 'tx', it[L.key], L.lang));
       fs.appendChild(d);
     });
     $('fsPrev').disabled = cur <= 0;
@@ -352,8 +383,7 @@ input[type=text]{width:100%;min-width:0;min-height:52px;padding:10px 12px;border
   function fitShow() {
     var show = $('show'), fs = $('fs');
     if (show.hidden) return;
-    show.style.height = window.innerHeight + 'px';
-    var land = window.innerWidth > window.innerHeight && window.innerWidth >= 560;
+    var land = show.clientWidth > show.clientHeight && show.clientWidth >= 560;
     show.classList.toggle('land', land);
     var lo = 14, hi = 160;
     function fits(px) {
@@ -379,7 +409,7 @@ input[type=text]{width:100%;min-width:0;min-height:52px;padding:10px 12px;border
     state.sel.forEach(function (id) {
       var it = Y.BY_ID[id];
       var c = el('div', 'cell');
-      Y.LANGS.forEach(function (L) { c.appendChild(el('div', L.key === 'ja' ? 'ja' : 'o', it[L.key], L.lang)); });
+      Y.LANGS.forEach(function (L) { c.appendChild(L.key === 'ja' ? jaEl('div', 'ja', it) : el('div', 'o', it[L.key], L.lang)); });
       grid.appendChild(c);
     });
     sheet.appendChild(grid);
