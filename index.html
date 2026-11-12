@@ -75,8 +75,8 @@ input[type=text]{width:100%;min-width:0;min-height:52px;padding:10px 12px;border
 #show .lab{display:block;font-size:max(13px,.32em);font-weight:700;color:#7A3B24;line-height:1.3;letter-spacing:.02em}
 #show .tx{display:block;line-height:1.25;font-weight:700;overflow-wrap:anywhere}
 #show .ln.ja .tx{color:#111}
-/* 日本語・韓国語は決めた切れ目（日本語は<wbr>・韓国語は空白）でだけ折り返す。入らなければ文字を小さくする */
-#show .tx:lang(ja),#show .tx:lang(ko),#sheet .cell .ja,#sheet .cell .o:lang(ko){word-break:keep-all;overflow-wrap:normal}
+/* 日本語・中国語・韓国語は決めた切れ目（日本語・中国語は<wbr>・韓国語は空白）でだけ折り返す。入らなければ文字を小さくする */
+#show .tx:lang(ja),#show .tx:lang(ko),#show .tx:lang(zh-Hans),#sheet .cell .ja,#sheet .cell .o:lang(ko),#sheet .cell .o:lang(zh-Hans){word-break:keep-all;overflow-wrap:normal}
 /* 中国語・韓国語は、その言語のフォントを先に使う（日本語のフォントと混ざって字の太さがばらつくのを防ぐ） */
 :lang(zh-Hans){font-family:"PingFang SC","Hiragino Sans GB","Microsoft YaHei","Noto Sans SC","Noto Sans CJK SC","Source Han Sans SC",sans-serif}
 :lang(ko){font-family:"Apple SD Gothic Neo","Malgun Gothic","Noto Sans KR","Noto Sans CJK KR","Source Han Sans K",sans-serif}
@@ -229,10 +229,22 @@ input[type=text]{width:100%;min-width:0;min-height:52px;padding:10px 12px;border
     r1: '靴を脱いで|お上がりください', r2: '食べ物の|持ち込みは|ご遠慮ください', r3: '店内では|お静かに|お願いします',
     g1: 'トイレは|こちらです', g2: 'テイクアウト|できます'
   };
+  // 中国語も同じく、折り返してよい場所を決めておく（字の途中で「支／付。」と折れないように）
+  var ZH_BREAKS = {
+    m1: '仅限|现金支付。', m2: '可以使用|银行卡和|电子支付。', m3: '请到|收银台结账。', m4: '可以|分开结账。',
+    s1: '今天|已经客满。', s2: '有预约的客人|优先。', s3: '请稍等。',
+    p1: '可以拍照。', p2: '请勿拍照。',
+    r1: '请脱鞋|入内。', r2: '请勿自带食物|入内。', r3: '店内请|保持安静。',
+    g1: '洗手间|在这边。', g2: '可以外带。'
+  };
+  function parts(map, it, key) {
+    var b = map[it.id];
+    return (b && b.split('|').join('') === it[key]) ? b.split('|') : [it[key]];
+  }
   var ALL = [];
   GROUPS.forEach(function (g) { g.items.forEach(function (it) {
-    var b = JA_BREAKS[it.id];
-    it.jaParts = (b && b.split('|').join('') === it.ja) ? b.split('|') : [it.ja];
+    it.jaParts = parts(JA_BREAKS, it, 'ja');
+    it.zhParts = parts(ZH_BREAKS, it, 'zh');
     ALL.push(it);
   }); });
   var BY_ID = {};
@@ -280,9 +292,16 @@ input[type=text]{width:100%;min-width:0;min-height:52px;padding:10px 12px;border
     return e;
   }
   // 日本語の文を、折り返してよい場所に<wbr>を挟んで作る（文字は textContent のまま）
-  function jaEl(tag, cls, it) {
-    var e = el(tag, cls, null, 'ja');
-    it.jaParts.forEach(function (p, i) {
+  function jaEl(tag, cls, it) { return partsEl(tag, cls, it.jaParts, 'ja'); }
+  function zhEl(tag, cls, it) { return partsEl(tag, cls, it.zhParts, 'zh-Hans'); }
+  function langEl(tag, cls, it, L) {
+    if (L.key === 'ja') return jaEl(tag, cls, it);
+    if (L.key === 'zh') return zhEl(tag, cls, it);
+    return el(tag, cls, it[L.key], L.lang);
+  }
+  function partsEl(tag, cls, list, lang) {
+    var e = el(tag, cls, null, lang);
+    list.forEach(function (p, i) {
       if (i) e.appendChild(document.createElement('wbr'));
       e.appendChild(document.createTextNode(p));
     });
@@ -381,7 +400,7 @@ input[type=text]{width:100%;min-width:0;min-height:52px;padding:10px 12px;border
     Y.LANGS.forEach(function (L) {
       var d = el('div', 'ln ' + L.key);
       d.appendChild(el('span', 'lab', L.label, L.lang));
-      d.appendChild(L.key === 'ja' ? jaEl('span', 'tx', it) : el('span', 'tx', it[L.key], L.lang));
+      d.appendChild(langEl('span', 'tx', it, L));
       fs.appendChild(d);
     });
     var a = document.activeElement;
@@ -433,7 +452,7 @@ input[type=text]{width:100%;min-width:0;min-height:52px;padding:10px 12px;border
     state.sel.forEach(function (id) {
       var it = Y.BY_ID[id];
       var c = el('div', 'cell');
-      Y.LANGS.forEach(function (L) { c.appendChild(L.key === 'ja' ? jaEl('div', 'ja', it) : el('div', 'o', it[L.key], L.lang)); });
+      Y.LANGS.forEach(function (L) { c.appendChild(langEl('div', L.key === 'ja' ? 'ja' : 'o', it, L)); });
       grid.appendChild(c);
     });
     sheet.appendChild(grid);
